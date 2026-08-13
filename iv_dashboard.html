@@ -121,9 +121,30 @@
   .modal-list .cnt{font-weight:700; color:var(--teal-deep);}
   .modal-close{margin-top:16px; width:100%; background:var(--bg); color:var(--ink); border:1px solid var(--line);}
   .modal-close:hover{background:var(--line);}
+
+  .login-overlay{position:fixed; inset:0; background:linear-gradient(135deg, #16388F, #1F4FC4); z-index:100; display:flex; align-items:center; justify-content:center; flex-direction:column; text-align:center; padding:24px;}
+  .login-overlay.hide{display:none;}
+  .login-box{background:#fff; border-radius:16px; padding:40px 36px; max-width:380px; width:100%; box-shadow:0 10px 30px rgba(0,0,0,0.25);}
+  .login-box h2{margin:0 0 8px; font-size:19px; color:var(--ink);}
+  .login-box p{margin:0 0 22px; font-size:13.5px; color:var(--ink-soft);}
+  .login-gsi-btn{display:flex; justify-content:center; margin-bottom:14px;}
+  .login-status{font-size:13px; margin-top:10px; min-height:18px;}
+  .login-status.err{color:#E2413D; font-weight:600;}
+  .login-status.pending{color:var(--ink-soft);}
 </style>
 </head>
 <body>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <h2>🔒 IV Complication Dashboard</h2>
+    <p>กรุณาเข้าสู่ระบบด้วยบัญชี Google ที่ได้รับสิทธิ์เข้าถึงข้อมูลนี้</p>
+    <div class="login-gsi-btn" id="gsiButton"></div>
+    <div class="login-status" id="loginStatus"></div>
+  </div>
+</div>
+
 <div class="wrap">
 
   <div class="banner">
@@ -297,6 +318,7 @@ function setMode(m){
 }
 
 let aggDrugs = null, aggFluids = null, aggDrugsOther = null, aggFluidsOther = null, aggAgeGroups = null;
+let googleIdToken = null;
 
 async function loadFromScript(){
   const statusEl = document.getElementById('scriptStatus');
@@ -304,9 +326,14 @@ async function loadFromScript(){
   try{
     const url = document.getElementById('scriptUrl').value.trim();
     if(!url) throw new Error('กรุณาใส่ Web App URL');
-    const res = await fetch(url);
+    if(!googleIdToken) throw new Error('กรุณาเข้าสู่ระบบด้วย Google ก่อน');
+    const sep = url.includes('?') ? '&' : '?';
+    const res = await fetch(url + sep + 'token=' + encodeURIComponent(googleIdToken));
     if(!res.ok) throw new Error('โหลดไม่สำเร็จ (' + res.status + ')');
     const data = await res.json();
+    if(data.authorized === false){
+      throw new Error(data.error || 'ไม่มีสิทธิ์เข้าถึงข้อมูลนี้');
+    }
     summaryRows = (data.summary || []).map(r => ({
       year: String(r.year||'ไม่ระบุ'), month: String(r.month||''), ward: String(r.ward||'ไม่ระบุ'),
       site: Number(r.site)||0, phlebitis: Number(r.phlebitis)||0,
@@ -324,7 +351,7 @@ async function loadFromScript(){
   }catch(err){
     document.getElementById('connectionPanel').style.display = 'block';
     statusEl.className = 'status err';
-    statusEl.textContent = 'โหลดไม่สำเร็จ: ' + err.message + ' — ตรวจสอบว่า Deploy แล้วและตั้งค่า "Who has access: Anyone"';
+    statusEl.textContent = 'โหลดไม่สำเร็จ: ' + err.message;
   }
 }
 
@@ -642,9 +669,69 @@ function renderAll(){
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  const url = document.getElementById('scriptUrl').value.trim();
-  if(url) loadFromScript();
+// ===== ใส่ Google OAuth Client ID ของคุณตรงนี้ (จาก Google Cloud Console) =====
+const GOOGLE_CLIENT_ID = '946899787331-m6ljc9cb1lbjhag9422fv5q2hv2epi2q.apps.googleusercontent.com';
+// ==============================================================
+
+function handleCredentialResponse(response){
+  googleIdToken = response.credential;
+  const statusEl = document.getElementById('loginStatus');
+  statusEl.className = 'login-status pending';
+  statusEl.textContent = 'กำลังตรวจสอบสิทธิ์...';
+  loadFromScriptAfterLogin();
+}
+
+async function loadFromScriptAfterLogin(){
+  const statusEl = document.getElementById('loginStatus');
+  try{
+    const url = document.getElementById('scriptUrl').value.trim();
+    if(!url) throw new Error('ยังไม่ได้ตั้งค่า Web App URL ในไฟล์');
+    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(googleIdToken));
+    const data = await res.json();
+    if(data.authorized === false){
+      statusEl.className = 'login-status err';
+      statusEl.textContent = data.error || 'ไม่มีสิทธิ์เข้าถึงข้อมูลนี้';
+      googleIdToken = null;
+      return;
+    }
+    document.getElementById('loginOverlay').classList.add('hide');
+    // Reuse the already-fetched data instead of calling loadFromScript() again
+    summaryRows = (data.summary || []).map(r => ({
+      year: String(r.year||'ไม่ระบุ'), month: String(r.month||''), ward: String(r.ward||'ไม่ระบุ'),
+      site: Number(r.site)||0, phlebitis: Number(r.phlebitis)||0,
+      infiltration: Number(r.infiltration)||0, extravasation: Number(r.extravasation)||0
+    })).filter(r => !r.ward.includes('วิสัญญี'));
+    rawRows = [];
+    aggDrugs = data.drugs || {};
+    aggFluids = data.fluids || {};
+    aggDrugsOther = data.drugsOther || null;
+    aggFluidsOther = data.fluidsOther || null;
+    aggAgeGroups = data.ageGroups || null;
+    document.getElementById('dataBadge').textContent = 'เชื่อมต่อผ่าน Apps Script';
+    const scriptStatusEl = document.getElementById('scriptStatus');
+    scriptStatusEl.className = 'status ok';
+    scriptStatusEl.textContent = 'เชื่อมต่อสำเร็จ — โหลด ' + summaryRows.length + ' แถวข้อมูลสรุป (ไม่มีข้อมูลผู้ป่วยรายบุคคล)';
+    showDashboard();
+  }catch(err){
+    statusEl.className = 'login-status err';
+    statusEl.textContent = 'เกิดข้อผิดพลาด: ' + err.message;
+    googleIdToken = null;
+  }
+}
+
+window.addEventListener('load', () => {
+  if (!window.google || !google.accounts || !google.accounts.id) {
+    document.getElementById('loginStatus').textContent = 'โหลด Google Sign-In ไม่สำเร็จ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต';
+    return;
+  }
+  google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: handleCredentialResponse
+  });
+  google.accounts.id.renderButton(
+    document.getElementById('gsiButton'),
+    { theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill' }
+  );
 });
 </script>
 </body>
