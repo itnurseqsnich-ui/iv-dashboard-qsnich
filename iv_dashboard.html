@@ -334,6 +334,12 @@ let rawRows = [];
 let charts = {};
 const EXCLUDE_VALUES = ['none','-','n/a','na','ไม่มี','ไม่ระบุ',''];
 
+// Collapse irregular spacing (e.g. "ส.5  เอ" vs "ส.5 เอ") so the same ward
+// from different monthly rows is always grouped together, not split apart.
+function normalizeWard(w){
+  return String(w||'').trim().replace(/\s+/g, ' ');
+}
+
 function toggleConnectionPanel(){
   const panel = document.getElementById('connectionPanel');
   panel.style.display = (panel.style.display === 'none') ? 'block' : 'none';
@@ -366,7 +372,7 @@ async function loadFromScript(){
       throw new Error(data.error || 'ไม่มีสิทธิ์เข้าถึงข้อมูลนี้');
     }
     summaryRows = dedupYearlyRows((data.summary || []).map(r => ({
-      year: String(r.year||'ไม่ระบุ'), month: String(r.month||''), ward: String(r.ward||'ไม่ระบุ'),
+      year: String(r.year||'ไม่ระบุ'), month: String(r.month||''), ward: normalizeWard(r.ward||'ไม่ระบุ'),
       site: Number(r.site)||0, phlebitis: Number(r.phlebitis)||0,
       infiltration: Number(r.infiltration)||0, extravasation: Number(r.extravasation)||0
     })).filter(r => !r.ward.includes('วิสัญญี')));
@@ -479,7 +485,7 @@ function mapSummary(labels, rows){
   return rows.map(r => ({
     year: iYear>=0 ? String(r[iYear]).trim() : 'ไม่ระบุ',
     month: iMonth>=0 ? String(r[iMonth]).trim() : '',
-    ward: iWard>=0 ? String(r[iWard]).trim() : 'ไม่ระบุ',
+    ward: iWard>=0 ? normalizeWard(r[iWard]) : 'ไม่ระบุ',
     site: iSite>=0 ? Number(r[iSite])||0 : 0,
     phlebitis: iPhle>=0 ? Number(r[iPhle])||0 : 0,
     infiltration: iInf>=0 ? Number(r[iInf])||0 : 0,
@@ -501,7 +507,7 @@ function mapRaw(labels, rows){
     const fluids = [iFluid, iFluidOther].filter(i=>i>=0).map(i => r[i])
       .map(v => (v||'').toString().trim()).filter(v => v && v.toLowerCase()!=='n/a');
     return {
-      ward: iWard>=0 ? String(r[iWard]).trim() : 'ไม่ระบุ',
+      ward: iWard>=0 ? normalizeWard(r[iWard]) : 'ไม่ระบุ',
       year: iYear>=0 ? String(r[iYear]).trim() : 'ไม่ระบุ',
       drugs, fluids
     };
@@ -728,7 +734,7 @@ async function loadFromScriptAfterLogin(){
     document.getElementById('loginOverlay').classList.add('hide');
     // Reuse the already-fetched data instead of calling loadFromScript() again
     summaryRows = dedupYearlyRows((data.summary || []).map(r => ({
-      year: String(r.year||'ไม่ระบุ'), month: String(r.month||''), ward: String(r.ward||'ไม่ระบุ'),
+      year: String(r.year||'ไม่ระบุ'), month: String(r.month||''), ward: normalizeWard(r.ward||'ไม่ระบุ'),
       site: Number(r.site)||0, phlebitis: Number(r.phlebitis)||0,
       infiltration: Number(r.infiltration)||0, extravasation: Number(r.extravasation)||0
     })).filter(r => !r.ward.includes('วิสัญญี')));
