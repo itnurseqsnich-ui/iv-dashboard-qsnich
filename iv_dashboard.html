@@ -299,6 +299,28 @@
 
 <script>
 let summaryRows = [];
+
+// Some wards have both a "ทั้งปี" (whole-year) summary row AND separate monthly rows
+// for the same fiscal year. Summing all of them double-counts. When both exist for
+// the same year+ward, keep only the monthly rows (they already sum to the yearly total).
+function dedupYearlyRows(rows){
+  const groups = {};
+  rows.forEach(r => {
+    const k = r.year + '|' + r.ward;
+    (groups[k] = groups[k] || []).push(r);
+  });
+  const result = [];
+  Object.values(groups).forEach(group => {
+    const hasMonthly = group.some(r => r.month && r.month !== 'ทั้งปี');
+    const hasWholeYear = group.some(r => r.month === 'ทั้งปี');
+    if(hasMonthly && hasWholeYear){
+      group.filter(r => r.month !== 'ทั้งปี').forEach(r => result.push(r));
+    } else {
+      group.forEach(r => result.push(r));
+    }
+  });
+  return result;
+}
 let rawRows = [];
 let charts = {};
 const EXCLUDE_VALUES = ['none','-','n/a','na','ไม่มี','ไม่ระบุ',''];
@@ -334,11 +356,11 @@ async function loadFromScript(){
     if(data.authorized === false){
       throw new Error(data.error || 'ไม่มีสิทธิ์เข้าถึงข้อมูลนี้');
     }
-    summaryRows = (data.summary || []).map(r => ({
+    summaryRows = dedupYearlyRows((data.summary || []).map(r => ({
       year: String(r.year||'ไม่ระบุ'), month: String(r.month||''), ward: String(r.ward||'ไม่ระบุ'),
       site: Number(r.site)||0, phlebitis: Number(r.phlebitis)||0,
       infiltration: Number(r.infiltration)||0, extravasation: Number(r.extravasation)||0
-    })).filter(r => !r.ward.includes('วิสัญญี'));
+    })).filter(r => !r.ward.includes('วิสัญญี')));
     rawRows = [];
     aggDrugs = data.drugs || {};
     aggFluids = data.fluids || {};
@@ -390,7 +412,7 @@ async function loadFromSheets(){
     const rawTab = document.getElementById('rawTab').value.trim();
 
     const summary = await fetchGviz(id, summaryTab);
-    summaryRows = mapSummary(summary.labels, summary.rows);
+    summaryRows = dedupYearlyRows(mapSummary(summary.labels, summary.rows));
 
     if(rawTab){
       const raw = await fetchGviz(id, rawTab);
@@ -422,7 +444,7 @@ function loadFromPaste(){
     const rText = document.getElementById('csvRaw').value;
     if(!sText.trim()) throw new Error('กรุณาวางข้อมูลสรุปอย่างน้อย 1 ชุด');
     const summary = parseCSV(sText);
-    summaryRows = mapSummary(summary.labels, summary.rows);
+    summaryRows = dedupYearlyRows(mapSummary(summary.labels, summary.rows));
 
     rawRows = [];
     if(rText.trim()){
@@ -696,11 +718,11 @@ async function loadFromScriptAfterLogin(){
     }
     document.getElementById('loginOverlay').classList.add('hide');
     // Reuse the already-fetched data instead of calling loadFromScript() again
-    summaryRows = (data.summary || []).map(r => ({
+    summaryRows = dedupYearlyRows((data.summary || []).map(r => ({
       year: String(r.year||'ไม่ระบุ'), month: String(r.month||''), ward: String(r.ward||'ไม่ระบุ'),
       site: Number(r.site)||0, phlebitis: Number(r.phlebitis)||0,
       infiltration: Number(r.infiltration)||0, extravasation: Number(r.extravasation)||0
-    })).filter(r => !r.ward.includes('วิสัญญี'));
+    })).filter(r => !r.ward.includes('วิสัญญี')));
     rawRows = [];
     aggDrugs = data.drugs || {};
     aggFluids = data.fluids || {};
