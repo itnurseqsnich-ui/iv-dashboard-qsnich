@@ -311,10 +311,19 @@ function dedupYearlyRows(rows){
   });
   const result = [];
   Object.values(groups).forEach(group => {
-    const hasMonthly = group.some(r => r.month && r.month !== 'ทั้งปี');
-    const hasWholeYear = group.some(r => r.month === 'ทั้งปี');
-    if(hasMonthly && hasWholeYear){
-      group.filter(r => r.month !== 'ทั้งปี').forEach(r => result.push(r));
+    const wholeYear = group.find(r => r.month === 'ทั้งปี');
+    const monthly = group.filter(r => r.month && r.month !== 'ทั้งปี');
+    if(wholeYear && monthly.length){
+      // Site isn't simply additive across months (a site can stay open across
+      // several months), so use the whole-year row's Site as the authoritative
+      // count. Complication counts ARE additive events, so sum the monthly rows.
+      result.push({
+        year: wholeYear.year, month: 'ทั้งปี', ward: wholeYear.ward,
+        site: wholeYear.site,
+        phlebitis: monthly.reduce((s,r)=>s+r.phlebitis,0),
+        infiltration: monthly.reduce((s,r)=>s+r.infiltration,0),
+        extravasation: monthly.reduce((s,r)=>s+r.extravasation,0)
+      });
     } else {
       group.forEach(r => result.push(r));
     }
